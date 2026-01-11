@@ -1,15 +1,11 @@
 import { useState } from 'react';
 import { Upload, CheckCircle, AlertCircle, Download } from 'lucide-react';
-import { CMRDeliveryService } from '../services/CMRDeliveryService';
-import { ACKProductionService } from '../services/ACKProductionService';
-import { LorryFreightService } from '../services/LorryFreightService';
+import { CMRIntegrationService } from '../services/CMRIntegrationService';
 
-const cmrDeliveryService = new CMRDeliveryService();
-const ackProductionService = new ACKProductionService();
-const lorryFreightService = new LorryFreightService();
+const integrationService = new CMRIntegrationService();
 
 const CMR_DELIVERIES = [
-  { ackNumber: 'R 24-25/522898', dispatchDate: '2025-06-05', vehicleNumber: 'AP29TB8258', netRiceQty: 286.66931, frkQty: 2.86669, gateInDate: '2025-06-06', dumpingDate: '2025-06-07' },
+  { ackNumber: 'R 24-25/522898', dispatchDate: '2025-06-05', vehicleNumber: 'AP29TB8258', netRiceQty: 285.22163, frkQty: 2.86669, gateInDate: '2025-06-06', dumpingDate: '2025-06-07' },
   { ackNumber: 'R 24-25/523849', dispatchDate: '2025-06-06', vehicleNumber: 'AP28TE3355', netRiceQty: 286.28086, frkQty: 2.8657, gateInDate: '2025-06-06', dumpingDate: '2025-06-09' },
   { ackNumber: 'R 24-25/525002', dispatchDate: '2025-06-08', vehicleNumber: 'AP29V7825', netRiceQty: 285.01812, frkQty: 2.86174, gateInDate: '2025-06-09', dumpingDate: '2025-06-09' },
   { ackNumber: 'R 24-25/525655', dispatchDate: '2025-06-08', vehicleNumber: 'AP29TA9149', netRiceQty: 286.47129, frkQty: 2.86471, gateInDate: '2025-06-11', dumpingDate: '2025-06-11' },
@@ -116,6 +112,9 @@ export default function CMRDataImport() {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<{
     totalRecords: number;
+    successful: number;
+    skipped: number;
+    failed: number;
     totalCMR: number;
     totalFRK: number;
     avgPaddyUsed: number;
@@ -126,73 +125,36 @@ export default function CMRDataImport() {
     setProgress(0);
 
     try {
+      const importResult = await integrationService.bulkImportCMRDeliveries(
+        CMR_DELIVERIES,
+        {
+          season: 'Rabi 24-25',
+          destination: 'fci',
+          variety: 'raw',
+          standardQuantityQtls: 290,
+          freightRate: 40,
+          skipIfExists: true
+        },
+        (current, total, ackNumber) => {
+          setProgress(Math.round((current / total) * 100));
+        }
+      );
+
       let totalCMR = 0;
       let totalFRK = 0;
 
-      for (let i = 0; i < CMR_DELIVERIES.length; i++) {
-        const delivery = CMR_DELIVERIES[i];
-
-        const paddyConsumed = (delivery.netRiceQty + delivery.frkQty) / 0.67;
-
-        const gateInStatus = delivery.gateInDate ? true : false;
-        const dumpingStatus = delivery.dumpingDate ? 'completed' : 'pending_ds';
-
-        await cmrDeliveryService.create({
-          ack_number: delivery.ackNumber,
-          delivery_date: delivery.dispatchDate,
-          destination_pool: 'fci',
-          variety: 'raw',
-          cmr_quantity_qtls: 290,
-          paddy_consumed_qtls: Number(paddyConsumed.toFixed(2)),
-          vehicle_number: delivery.vehicleNumber,
-          driver_name: '',
-          delivery_status: 'delivered',
-          gate_in_status: gateInStatus,
-          gate_in_date: delivery.gateInDate || null,
-          dumping_status: dumpingStatus,
-          notes: `Net Rice: ${delivery.netRiceQty} Qtls, FRK: ${delivery.frkQty} Qtls`,
-        });
-
-        await ackProductionService.create({
-          ack_number: delivery.ackNumber,
-          production_date: delivery.dispatchDate,
-          rice_type: 'raw',
-          fortified_rice_qty: 290,
-          raw_rice_qty: delivery.netRiceQty,
-          frk_qty: delivery.frkQty,
-          notes: `Imported from CMR delivery data`,
-        });
-
-        const freightRate = 40;
-        const totalFreight = 290 * freightRate;
-
-        await lorryFreightService.create({
-          ack_number: delivery.ackNumber,
-          delivery_date: delivery.dispatchDate,
-          vehicle_number: delivery.vehicleNumber,
-          transporter_name: 'FCI Transport',
-          quantity_qtls: 290,
-          freight_rate: freightRate,
-          total_freight: totalFreight,
-          advance_paid: 0,
-          balance_due: totalFreight,
-          payment_status: 'pending',
-          destination: 'FCI',
-          notes: `Auto-imported from CMR ACK delivery`,
-        });
-
+      CMR_DELIVERIES.forEach(delivery => {
         totalCMR += 290;
         totalFRK += delivery.frkQty;
-
-        setProgress(Math.round(((i + 1) / CMR_DELIVERIES.length) * 100));
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
+      });
 
       const avgPaddyUsed = (totalCMR + totalFRK) / 0.67;
 
       setResults({
-        totalRecords: CMR_DELIVERIES.length,
+        totalRecords: importResult.totalProcessed,
+        successful: importResult.successful,
+        skipped: importResult.skipped,
+        failed: importResult.failed,
         totalCMR,
         totalFRK: Number(totalFRK.toFixed(2)),
         avgPaddyUsed: Number(avgPaddyUsed.toFixed(2)),
@@ -284,23 +246,46 @@ export default function CMRDataImport() {
               </div>
 
               {results && (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-left">
-                      <div className="text-emerald-400 text-sm font-medium mb-1">Records Imported</div>
-                      <div className="text-2xl font-bold text-white">{results.totalRecords}</div>
+                <div className="space-y-4">
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-left">
+                        <div className="text-emerald-400 text-sm font-medium mb-1">Total Records</div>
+                        <div className="text-2xl font-bold text-white">{results.totalRecords}</div>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-emerald-400 text-sm font-medium mb-1">Successfully Imported</div>
+                        <div className="text-2xl font-bold text-white">{results.successful}</div>
+                      </div>
+                      {results.skipped > 0 && (
+                        <div className="text-left">
+                          <div className="text-amber-400 text-sm font-medium mb-1">Skipped (Exists)</div>
+                          <div className="text-2xl font-bold text-white">{results.skipped}</div>
+                        </div>
+                      )}
+                      {results.failed > 0 && (
+                        <div className="text-left">
+                          <div className="text-red-400 text-sm font-medium mb-1">Failed</div>
+                          <div className="text-2xl font-bold text-white">{results.failed}</div>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-left">
-                      <div className="text-emerald-400 text-sm font-medium mb-1">Total CMR</div>
-                      <div className="text-2xl font-bold text-white">{results.totalCMR.toLocaleString('en-IN')} Qtls</div>
-                    </div>
-                    <div className="text-left">
-                      <div className="text-emerald-400 text-sm font-medium mb-1">Total FRK</div>
-                      <div className="text-2xl font-bold text-white">{results.totalFRK.toLocaleString('en-IN')} Qtls</div>
-                    </div>
-                    <div className="text-left">
-                      <div className="text-emerald-400 text-sm font-medium mb-1">Est. Paddy Used</div>
-                      <div className="text-2xl font-bold text-white">{results.avgPaddyUsed.toLocaleString('en-IN')} Qtls</div>
+                  </div>
+
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-left">
+                        <div className="text-blue-400 text-sm font-medium mb-1">Total CMR</div>
+                        <div className="text-2xl font-bold text-white">{results.totalCMR.toLocaleString('en-IN')} Qtls</div>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-blue-400 text-sm font-medium mb-1">Total FRK</div>
+                        <div className="text-2xl font-bold text-white">{results.totalFRK.toLocaleString('en-IN')} Qtls</div>
+                      </div>
+                      <div className="text-left col-span-2">
+                        <div className="text-blue-400 text-sm font-medium mb-1">Est. Paddy Used</div>
+                        <div className="text-2xl font-bold text-white">{results.avgPaddyUsed.toLocaleString('en-IN')} Qtls</div>
+                      </div>
                     </div>
                   </div>
                 </div>
