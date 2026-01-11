@@ -3,6 +3,7 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 
 export class BaseService {
   protected tableName: string;
+  protected supabase = supabase;
   private subscriptions: Map<string, RealtimeChannel> = new Map();
 
   constructor(tableName: string) {

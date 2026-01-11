@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileDown, FileSpreadsheet, RotateCcw, Upload, Download, Calculator, Package, ShoppingCart, DollarSign, Zap, BarChart3, Store, Boxes } from 'lucide-react';
+import { FileDown, FileSpreadsheet, RotateCcw, Upload, Download, Calculator, Package, ShoppingCart, DollarSign, Zap, BarChart3, Store, Boxes, Activity } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthPage from './components/auth/AuthPage';
 import Layout from './components/layout/Layout';
