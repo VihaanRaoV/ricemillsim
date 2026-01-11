@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { Upload, CheckCircle, AlertCircle, Download } from 'lucide-react';
 import { CMRDeliveryService } from '../services/CMRDeliveryService';
+import { ACKProductionService } from '../services/ACKProductionService';
+import { LorryFreightService } from '../services/LorryFreightService';
 
 const cmrDeliveryService = new CMRDeliveryService();
+const ackProductionService = new ACKProductionService();
+const lorryFreightService = new LorryFreightService();
 
 const CMR_DELIVERIES = [
   { ackNumber: 'R 24-25/522898', dispatchDate: '2025-06-05', vehicleNumber: 'AP29TB8258', netRiceQty: 286.66931, frkQty: 2.86669, gateInDate: '2025-06-06', dumpingDate: '2025-06-07' },
@@ -149,12 +153,40 @@ export default function CMRDataImport() {
           notes: `Net Rice: ${delivery.netRiceQty} Qtls, FRK: ${delivery.frkQty} Qtls`,
         });
 
+        await ackProductionService.create({
+          ack_number: delivery.ackNumber,
+          production_date: delivery.dispatchDate,
+          rice_type: 'raw',
+          fortified_rice_qty: 290,
+          raw_rice_qty: delivery.netRiceQty,
+          frk_qty: delivery.frkQty,
+          notes: `Imported from CMR delivery data`,
+        });
+
+        const freightRate = 40;
+        const totalFreight = 290 * freightRate;
+
+        await lorryFreightService.create({
+          ack_number: delivery.ackNumber,
+          delivery_date: delivery.dispatchDate,
+          vehicle_number: delivery.vehicleNumber,
+          transporter_name: 'FCI Transport',
+          quantity_qtls: 290,
+          freight_rate: freightRate,
+          total_freight: totalFreight,
+          advance_paid: 0,
+          balance_due: totalFreight,
+          payment_status: 'pending',
+          destination: 'FCI',
+          notes: `Auto-imported from CMR ACK delivery`,
+        });
+
         totalCMR += 290;
         totalFRK += delivery.frkQty;
 
         setProgress(Math.round(((i + 1) / CMR_DELIVERIES.length) * 100));
 
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
 
       const avgPaddyUsed = (totalCMR + totalFRK) / 0.67;
@@ -185,7 +217,7 @@ export default function CMRDataImport() {
 
           <h2 className="text-2xl font-bold text-white mb-3">Import CMR Delivery Data</h2>
           <p className="text-gray-400 mb-8">
-            Import 99 CMR Rice ACK delivery records for Rabi 24-25 season
+            Import 99 CMR Rice ACK records into Production Tab, Lorry Freight Tab, and CMR Dashboard
           </p>
 
           {!imported ? (
@@ -276,13 +308,13 @@ export default function CMRDataImport() {
 
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <AlertCircle size={20} className="text-blue-400 mt-0.5" />
+                  <CheckCircle size={20} className="text-blue-400 mt-0.5" />
                   <div className="text-left">
-                    <div className="text-blue-400 font-medium mb-1">Next Steps</div>
+                    <div className="text-blue-400 font-medium mb-1">Data Successfully Imported To:</div>
                     <ul className="text-gray-300 text-sm space-y-1">
-                      <li>• Go to CMR Paddy Dashboard to view all deliveries</li>
-                      <li>• Check the Season Details for updated statistics</li>
-                      <li>• Verify paddy consumption matches your records</li>
+                      <li>• <strong>Production Tab</strong> - All 99 ACK production records with FRK quantities</li>
+                      <li>• <strong>Lorry Freight Tab</strong> - All 99 freight entries (₹40/qtl = ₹11,600 per ACK)</li>
+                      <li>• <strong>CMR Paddy Dashboard</strong> - All 99 deliveries with gate-in & dumping status</li>
                     </ul>
                   </div>
                 </div>
